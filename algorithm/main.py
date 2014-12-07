@@ -1,22 +1,13 @@
 import os
 import sys
-
 import numpy as np
-
 from algorithm.util import upper_bound_bids
 import algorithm.internal as internal
 
 
-def solve(w, reputations, granularity=10000, param=1e-6):
+def solve(lowers, uppers, granularity=10000, param=1e-6):
     # infer number of bidders
-    n = reputations.size
-
-    # compute an array of lower and upper extremities
-    lowers = np.empty(n, dtype=np.float)
-    uppers = np.empty(n, dtype=np.float)
-    for i in np.arange(n):
-        lowers[i] = (1-w) * reputations[i]
-        uppers[i] = (1-w) * reputations[i] + w
+    n = lowers.size
 
     # estimate the upper bound on bids
     b_upper = upper_bound_bids(lowers, uppers)
@@ -38,7 +29,6 @@ def solve(w, reputations, granularity=10000, param=1e-6):
 
         # solve the system
         try:
-            #print("guess=%f, b_upper=%f" % (guess, b_upper-param))
             costs = internal.solve(lowers, uppers, bids).T
 
         except Exception:
@@ -66,8 +56,6 @@ def solve(w, reputations, granularity=10000, param=1e-6):
             low = guess
 
     try:
-        # print("Param=%f" % param)
-
         return bids, costs
 
     except UnboundLocalError:
@@ -78,20 +66,20 @@ if __name__ == "__main__":
     param = float(sys.argv[1])
 
     # set the scenario
-    w = 0.55
-    reputations = np.array([0.25, 0.7, 0.75], dtype=np.float)
-    n = reputations.size
+    lowers = np.array([0.0125,0.015,0.0375])
+    uppers = np.array([0.9625,0.965,0.9875])
+    n = lowers.size
 
     # approximate
-    bids, costs = solve(w, reputations, param=param)
+    bids, costs = solve(lowers, uppers, param=param)
 
     print("Estimated lower bound on bids: %r" % bids[0])
 
     # save the results in a file
     with open('efsm.out', 'wt') as f:
-        labels = ['w', 'reps', 'bids'] + ['costs_{}'.format(i) for i in range(n)]
+        labels = ['lowers', 'uppers', 'bids'] + ['costs_{}'.format(i) for i in range(n)]
         labels = ' '.join(labels)
-        values = [w, reputations.tolist(), bids.tolist()] + [c.tolist() for c in costs]
+        values = [lowers.tolist(), uppers.tolist(), bids.tolist()] + [c.tolist() for c in costs]
         values = ' '.join(map(lambda x: repr(x).replace(' ', ''), values))
         f.write(labels)
         f.write('\n')

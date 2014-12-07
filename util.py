@@ -1,9 +1,5 @@
-import argparse
-
 import numpy as np
-import scipy.integrate as si
 import scipy.stats as stats
-
 from algorithm.util import upper_bound_bids
 from algorithm.main import solve
 
@@ -56,16 +52,12 @@ def verify_sufficiency(costs, bids, b_upper, cdfs, step=100):
 
     return sampled_bids, best_responses
 
-def estimate_param(w, reputations):
+def estimate_param(lowers, uppers):
     # get number of bidders
-    n = reputations.size
-
-    # estimate lower and upper extremities
-    lower_extremities = np.array([(1-w)*r for r in reputations])
-    upper_extremities = np.array([(1-w)*r + w for r in reputations])
+    n = lowers.size
 
     # estimate upper bound on bids
-    b_upper = upper_bound_bids(lower_extremities, upper_extremities)
+    b_upper = upper_bound_bids(lowers, uppers)
 
     # approximate
     param = 1e-6
@@ -75,14 +67,14 @@ def estimate_param(w, reputations):
             return None
 
         try:
-            bids, costs = solve(w, reputations, param=param)
+            bids, costs = solve(lowers, uppers, param=param)
         except Exception:
             param += 1e-6
             continue
 
         # verify sufficiency
         cdfs = []
-        for l,u in zip(lower_extremities, upper_extremities):
+        for l,u in zip(lowers, uppers):
           cdfs.append(stats.uniform(loc=l, scale=u-l))
 
         step = len(bids) // 35
@@ -106,16 +98,4 @@ def estimate_param(w, reputations):
         param += 1e-6
 
     return param
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Estimate param for EFSM")
-    parser.add_argument('w', type=float, help='Price weight')
-    parser.add_argument('reps', nargs='+', type=float, help='Reputation array')
-    args = parser.parse_args()
-
-    # parse scenario params
-    w = args.w
-    reputations = np.array(args.reps)
-
-    print(estimate_param(w, reputations))
 

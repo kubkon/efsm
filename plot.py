@@ -3,13 +3,11 @@ import ast
 import csv
 from itertools import cycle, chain
 from functools import partial
-
 import numpy as np
 import scipy.stats as ss
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib import rc
-
 from algorithm.util import upper_bound_bids
 
 def best_responses(costs, bids, b_upper, cdfs, step=100):
@@ -82,25 +80,19 @@ with open(file_name, 'rt') as f:
             data_in[key] = row[key]
 
 # Parse data common to FSM and PPM methods
-w = ast.literal_eval(data_in['w'])
-reps = ast.literal_eval(data_in['reps'])
-n = len(reps)
-
-# Estimate cost support bounds
-lower_extremities = np.array([(1-w)*r for r in reps])
-upper_extremities = np.array([(1-w)*r + w for r in reps])
-
-# Estimate upper bound on bids
-b_upper = upper_bound_bids(lower_extremities, upper_extremities)
-
-# Parse the rest of the data
+lowers = np.array(ast.literal_eval(data_in['lowers']))
+uppers = np.array(ast.literal_eval(data_in['uppers']))
+n = lowers.size
 bids = np.array(ast.literal_eval(data_in['bids']))
 costs = np.array([ast.literal_eval(data_in['costs_{}'.format(i)]) for i in range(n)])
 
+# Estimate upper bound on bids
+b_upper = upper_bound_bids(lowers, uppers)
+
 # Verify sufficiency
 cdfs = []
-for bounds in zip(lower_extremities, upper_extremities):
-  cdfs.append(ss.uniform(loc=bounds[0], scale=bounds[1]-bounds[0]))
+for l, u in zip(lowers, uppers):
+  cdfs.append(ss.uniform(loc=l, scale=u-l))
 step = len(bids) // 35
 s_costs, s_bids = best_responses(costs, bids, b_upper, cdfs, step=step)
 
