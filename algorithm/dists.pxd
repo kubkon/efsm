@@ -1,3 +1,11 @@
-cdef double uniform_cdf(double x, double a, double b) nogil
-cdef double uniform_pdf(double x, double a, double b) nogil
+cdef class GenericDist:
+    cdef double loc
+    cdef double scale
+
+    cpdef double cdf(self, double x)
+
+    cpdef double pdf(self, double x)
+
+cdef class Uniform(GenericDist):
+    pass
 

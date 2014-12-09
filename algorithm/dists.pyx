@@ -1,27 +1,28 @@
 from cython_gsl cimport *
 
-cdef double uniform_cdf(double x, double a, double b) nogil:
-    if x < a:
-        return 0.0
-    elif x > b:
-        return 1.0
-    else:
-        return (x - a) / (b - a)
+cdef class GenericDist:
+    def __init__(self, loc, scale):
+        self.loc = loc
+        self.scale = scale
 
-cdef double uniform_pdf(double x, double a, double b) nogil:
-    if x < a or x > b:
-        return 0.0
-    else:
-        return 1 / (b - a)
+    cpdef double cdf(self, double x):
+        return -1.0
 
-class Uniform:
-    def __init__(self, a, b):
-        self.a = a
-        self.b = b
+    cpdef double pdf(self, double x):
+        return -1.0
 
-    def cdf(self, x):
-        return uniform_cdf(x, self.a, self.b)
+cdef class Uniform(GenericDist):
+    cpdef double cdf(self, double x):
+        if x < self.loc:
+            return 0.0
+        elif x > self.scale:
+            return 1.0
+        else:
+            return (x - self.loc) / (self.scale - self.loc)
 
-    def pdf(self, x):
-        return uniform_pdf(x, self.a, self.b)
+    cpdef double pdf(self, double x):
+        if x < self.loc or x > self.scale:
+            return 0.0
+        else:
+            return 1 / (self.scale - self.loc)
 

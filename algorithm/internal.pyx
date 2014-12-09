@@ -1,6 +1,7 @@
 from cython_gsl cimport *
 from libc.stdlib cimport calloc, free
 from libc.math cimport fabs
+from algorithm.dists cimport *
 
 import numpy as np
 
