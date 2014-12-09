@@ -1,11 +1,23 @@
-cdef class GenericDist:
-    cdef double loc
-    cdef double scale
+ctypedef struct TDist:
+    double cdf(double, double, double) nogil
+    double pdf(double, double, double) nogil
 
-    cpdef double cdf(self, double x)
+ctypedef enum dist_t:
+    UNIFORM = 0
 
-    cpdef double pdf(self, double x)
+cdef TDist * get_distribution(dist_t dist_id) nogil
 
-cdef class Uniform(GenericDist):
-    pass
+cdef inline double uniform_cdf(double x, double a, double b) nogil:
+    if x < a:
+        return 0.0
+    elif x > b:
+        return 1.0
+    else:
+        return (x - a) / (b - a)
+
+cdef inline double uniform_pdf(double x, double a, double b) nogil:
+    if x < a or x > b:
+        return 0.0
+    else:
+        return 1 / (b - a)
 

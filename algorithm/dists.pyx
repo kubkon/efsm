@@ -1,28 +1,36 @@
 from cython_gsl cimport *
+from libc.stdlib cimport calloc
+from enum import Enum
 
-cdef class GenericDist:
+cdef TDist * get_distribution(dist_t dist_id) nogil:
+    cdef TDist * distribution = <TDist *> calloc(1, sizeof(TDist))
+    if dist_id == UNIFORM:
+        distribution.cdf = &uniform_cdf
+        distribution.pdf = &uniform_pdf
+    else:
+        distribution.cdf = &uniform_cdf
+        distribution.pdf = &uniform_pdf
+
+    return distribution
+
+class PyTDist(int, Enum):
+    uniform = UNIFORM
+
+class GenericDist:
     def __init__(self, loc, scale):
         self.loc = loc
         self.scale = scale
 
-    cpdef double cdf(self, double x):
-        return -1.0
+    def cdf(self, x):
+        return None
 
-    cpdef double pdf(self, double x):
-        return -1.0
+    def pdf(self, x):
+        return None
 
-cdef class Uniform(GenericDist):
-    cpdef double cdf(self, double x):
-        if x < self.loc:
-            return 0.0
-        elif x > self.scale:
-            return 1.0
-        else:
-            return (x - self.loc) / (self.scale - self.loc)
+class Uniform(GenericDist):
+    def cdf(self, x):
+        return uniform_cdf(x, self.loc, self.scale)
 
-    cpdef double pdf(self, double x):
-        if x < self.loc or x > self.scale:
-            return 0.0
-        else:
-            return 1 / (self.scale - self.loc)
+    def pdf(self, x):
+        return uniform_pdf(x, self.loc, self.scale)
 

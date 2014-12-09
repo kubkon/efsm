@@ -4,16 +4,21 @@ from libc.math cimport fabs
 from algorithm.dists cimport *
 
 import numpy as np
+from algorithm.dists import PyTDist
 
 # C struct
 # specifies the system of ODE
 ctypedef struct Tode:
     # number of bidders
     int n
+    # gsl vector of lower extremities
+    const gsl_vector * lowers
     # gsl vector of upper extremities
     const gsl_vector * uppers
     # pointer to function describing system of ODEs
     int f(int, const gsl_vector *, double, double *, double *) nogil
+    # struct holding pdf and cdf functions of a relevant distribution
+    const TDist * distribution
 
 cdef int f(int n, const gsl_vector * uppers, double t, double * y, double * f) nogil:
     """Evolves system of ODEs at a particular independent variable t,
@@ -59,10 +64,13 @@ cdef int ode(double t, double y[], double f[], void *params) nogil:
     P.f(P.n, P.uppers, t, y, f)
     return GSL_SUCCESS
 
-cdef int solve_ode(gsl_vector_const_view v_uppers,
+cdef int solve_ode(gsl_vector_const_view v_lowers,
+                   gsl_vector_const_view v_uppers,
+                   TDist * distribution,
                    gsl_vector_const_view v_initial,
                    gsl_vector_const_view v_bids,
                    gsl_matrix_view v_costs) nogil:
+    cdef const gsl_vector * lowers = &v_lowers.vector
     cdef const gsl_vector * uppers = &v_uppers.vector
     cdef const gsl_vector * initial = &v_initial.vector
     cdef const gsl_vector * bids = &v_bids.vector
@@ -75,8 +83,10 @@ cdef int solve_ode(gsl_vector_const_view v_uppers,
     # initialize the struct describing system of ODEs
     cdef Tode P
     P.n = n
+    P.lowers = lowers
     P.uppers = uppers
     P.f = f
+    P.distribution = distribution
 
     # initialize GSL ODE system
     cdef gsl_odeiv2_system sys
@@ -223,7 +233,7 @@ def p_estimate_k(b, lowers):
 
     return k
 
-def solve(lowers, uppers, bids):
+def solve(lowers, uppers, bids, distribution_id=PyTDist.uniform):
     """Returns matrix of costs that establish the solution (and equilibrium)
     to the system of ODEs (1.26) in the thesis.
 
@@ -238,9 +248,11 @@ def solve(lowers, uppers, bids):
     cdef int index = 0
     cdef double prev, curr
 
+    cdef gsl_vector * c_lowers = gsl_vector_calloc(n)
     cdef gsl_vector * c_uppers = gsl_vector_calloc(n)
     cdef gsl_vector * initial = gsl_vector_calloc(n)
     for i from 0 <= i < n:
+        gsl_vector_set(c_lowers, i, lowers[i])
         gsl_vector_set(c_uppers, i, uppers[i])
         gsl_vector_set(initial, i, lowers[i])
 
@@ -250,6 +262,9 @@ def solve(lowers, uppers, bids):
 
     cdef gsl_matrix * c_costs = gsl_matrix_calloc(m, n)
 
+    # extract distribution
+    cdef TDist * distribution = get_distribution(int(distribution_id))
+
     cdef gsl_vector_view v
 
     # estimate k
@@ -257,7 +272,9 @@ def solve(lowers, uppers, bids):
 
     while True:
         # solve system at new initial conditions
-        status = solve_ode(gsl_vector_const_subvector(c_uppers, 0, k),
+        status = solve_ode(gsl_vector_const_subvector(c_lowers, 0, k),
+                           gsl_vector_const_subvector(c_uppers, 0, k),
+                           distribution,
                            gsl_vector_const_subvector(initial, 0, k),
                            gsl_vector_const_subvector(c_bids, index, m-index),
                            gsl_matrix_submatrix(c_costs, index, 0, m-index, k))
@@ -265,10 +282,12 @@ def solve(lowers, uppers, bids):
         if status != GSL_SUCCESS:
             # if unsuccessful, raise an error
             msg = "Error, return value=%d\n" % status
+            gsl_vector_free(c_lowers)
             gsl_vector_free(c_uppers)
             gsl_vector_free(initial)
             gsl_vector_free(c_bids)
             gsl_matrix_free(c_costs)
+            free(distribution)
             raise Exception(msg)
 
         if k == n:
@@ -285,10 +304,12 @@ def solve(lowers, uppers, bids):
 
         if index == m-1:
             msg = "Error, index of truncation exceeds permissible range\n"
+            gsl_vector_free(c_lowers)
             gsl_vector_free(c_uppers)
             gsl_vector_free(initial)
             gsl_vector_free(c_bids)
             gsl_matrix_free(c_costs)
+            free(distribution)
             raise Exception(msg)
 
         # set new initial conditions
@@ -304,9 +325,11 @@ def solve(lowers, uppers, bids):
         for j from 0 <= j < n:
             costs[i][j] = gsl_matrix_get(c_costs, i, j)
 
+    gsl_vector_free(c_lowers)
     gsl_vector_free(c_uppers)
     gsl_vector_free(initial)
     gsl_vector_free(c_bids)
     gsl_matrix_free(c_costs)
+    free(distribution)
 
     return costs
