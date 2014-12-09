@@ -16,11 +16,23 @@ ctypedef struct Tode:
     # gsl vector of upper extremities
     const gsl_vector * uppers
     # pointer to function describing system of ODEs
-    int f(int, const gsl_vector *, double, double *, double *) nogil
+    int f(int,
+          const gsl_vector *,
+          const gsl_vector *,
+          const TDist *,
+          double,
+          double *,
+          double *) nogil
     # struct holding pdf and cdf functions of a relevant distribution
     const TDist * distribution
 
-cdef int f(int n, const gsl_vector * uppers, double t, double * y, double * f) nogil:
+cdef int f(int n,
+           const gsl_vector * lowers,
+           const gsl_vector * uppers,
+           const TDist * distribution,
+           double t,
+           double * y,
+           double * f) nogil:
     """Evolves system of ODEs at a particular independent variable t,
     and for a vector of particular dependent variables y_i(t). Mathematically,
     dy_i(t)/dt = f_i(t, y_1(t), ..., y_n(t)).
@@ -34,7 +46,7 @@ cdef int f(int n, const gsl_vector * uppers, double t, double * y, double * f) n
     """
     cdef double * rs = <double *> calloc(n, sizeof(double))
     cdef int i
-    cdef double r, rs_sum
+    cdef double cdf, pdf, loc, scale, r, rs_sum
     rs_sum = 0
 
     for i from 0 <= i < n:
@@ -49,7 +61,16 @@ cdef int f(int n, const gsl_vector * uppers, double t, double * y, double * f) n
 
     # this loop corresponds to the system of equations (1.26) in the thesis
     for i from 0 <= i < n:
-        f[i] = (gsl_vector_get(uppers, i) - y[i]) * (rs_sum / (n-1) - rs[i])
+        loc = gsl_vector_get(lowers, i)
+        scale = gsl_vector_get(uppers, i)
+        cdf = distribution.cdf(y[i], loc, scale)
+        pdf = distribution.pdf(y[i], loc, scale)
+        
+        if pdf == 0:
+            free(rs)
+            return GSL_EZERODIV
+
+        f[i] = ((1 - cdf) / pdf) * (rs_sum / (n-1) - rs[i])
 
     free(rs)
     return GSL_SUCCESS
@@ -61,7 +82,7 @@ cdef int ode(double t, double y[], double f[], void *params) nogil:
     # unpack Tode struct from params
     cdef Tode * P = <Tode *> params
     # solve ODE at instant t
-    P.f(P.n, P.uppers, t, y, f)
+    P.f(P.n, P.lowers, P.uppers, P.distribution, t, y, f)
     return GSL_SUCCESS
 
 cdef int solve_ode(gsl_vector_const_view v_lowers,
