@@ -1,32 +1,25 @@
-import argparse
-from ast import literal_eval
-import csv
 from itertools import cycle, chain
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib import rc
 
-from algorithm.main import EFSM
+from algorithm.main import EFSM, Params, PyTDist
 
-
-csv.field_size_limit(1000000000)
 
 rc('font',**{'family':'sans-serif','sans-serif':['Gill Sans']})
 rc('text', usetex=True)
 matplotlib.rcParams.update({'font.size': 14, 'legend.fontsize': 14})
 
-### Parse command line arguments
-parser = argparse.ArgumentParser(description="Numerical approximation -- sufficiency analyzer")
-parser.add_argument('lowers', help='Input lower extremities')
-parser.add_argument('uppers', help='Input upper extremities')
-args = parser.parse_args()
-lowers = np.array(literal_eval(args.lowers))
-uppers = np.array(literal_eval(args.uppers))
-n = lowers.size
+# Set the scenario
+params = [
+    Params(0, 0, 0.0625, 0.8125, PyTDist.uniform),
+    Params(0, 0, 0.125,  0.875,  PyTDist.uniform),
+    Params(0, 0, 0.1875, 0.9375, PyTDist.uniform)
+]
 
 # Approximate equilibrium bidding strategies
-solver = EFSM(lowers, uppers)
+solver = EFSM(params)
 bids, costs = solver.solve()
 
 # Verify sufficiency
@@ -36,6 +29,7 @@ _, s_costs, s_bids = solver.verify_sufficiency(costs, bids, step=step)
 # Plot
 styles = ['b', 'r--', 'g:', 'm-.']
 colors = ['b.', 'r.', 'g.', 'm.']
+n = len(params)
 
 plt.figure()
 sts = cycle(styles)

@@ -11,25 +11,20 @@ from algorithm.dists import PyTDist
 ctypedef struct Tode:
     # number of bidders
     int n
-    # gsl vector of lower extremities
-    const gsl_vector * lowers
-    # gsl vector of upper extremities
-    const gsl_vector * uppers
+    TDistParams * params
+    # struct holding pdf and cdf functions of a relevant distribution
+    TDist * distribution
     # pointer to function describing system of ODEs
     int f(int,
-          const gsl_vector *,
-          const gsl_vector *,
-          const TDist *,
+          TDistParams *,
+          TDist *,
           double,
           double *,
           double *) nogil
-    # struct holding pdf and cdf functions of a relevant distribution
-    const TDist * distribution
 
 cdef int f(int n,
-           const gsl_vector * lowers,
-           const gsl_vector * uppers,
-           const TDist * distribution,
+           TDistParams * params,
+           TDist * distribution,
            double t,
            double * y,
            double * f) nogil:
@@ -61,10 +56,8 @@ cdef int f(int n,
 
     # this loop corresponds to the system of equations (1.26) in the thesis
     for i from 0 <= i < n:
-        loc = gsl_vector_get(lowers, i)
-        scale = gsl_vector_get(uppers, i)
-        cdf = distribution.cdf(y[i], loc, scale)
-        pdf = distribution.pdf(y[i], loc, scale)
+        cdf = distribution.cdf(y[i], &params[i])
+        pdf = distribution.pdf(y[i], &params[i])
         
         if pdf == 0:
             free(rs)
@@ -82,17 +75,14 @@ cdef int ode(double t, double y[], double f[], void *params) nogil:
     # unpack Tode struct from params
     cdef Tode * P = <Tode *> params
     # solve ODE at instant t
-    P.f(P.n, P.lowers, P.uppers, P.distribution, t, y, f)
+    P.f(P.n, P.params, P.distribution, t, y, f)
     return GSL_SUCCESS
 
-cdef int solve_ode(gsl_vector_const_view v_lowers,
-                   gsl_vector_const_view v_uppers,
+cdef int solve_ode(TDistParams * params,
                    TDist * distribution,
                    gsl_vector_const_view v_initial,
                    gsl_vector_const_view v_bids,
                    gsl_matrix_view v_costs) nogil:
-    cdef const gsl_vector * lowers = &v_lowers.vector
-    cdef const gsl_vector * uppers = &v_uppers.vector
     cdef const gsl_vector * initial = &v_initial.vector
     cdef const gsl_vector * bids = &v_bids.vector
     cdef gsl_matrix * costs = &v_costs.matrix
@@ -104,8 +94,7 @@ cdef int solve_ode(gsl_vector_const_view v_lowers,
     # initialize the struct describing system of ODEs
     cdef Tode P
     P.n = n
-    P.lowers = lowers
-    P.uppers = uppers
+    P.params = params
     P.f = f
     P.distribution = distribution
 
@@ -254,7 +243,7 @@ def p_estimate_k(b, lowers):
 
     return k
 
-def solve(lowers, uppers, bids, distribution_id=PyTDist.uniform):
+def solve(params, bids):
     """Returns matrix of costs that establish the solution (and equilibrium)
     to the system of ODEs (1.26) in the thesis.
 
@@ -265,49 +254,54 @@ def solve(lowers, uppers, bids, distribution_id=PyTDist.uniform):
     """
     cdef int i, j, k
     cdef int m = bids.size
-    cdef int n = lowers.size
+    cdef int n = len(params)
     cdef int index = 0
     cdef double prev, curr
+    cdef TDistParams param
 
-    cdef gsl_vector * c_lowers = gsl_vector_calloc(n)
-    cdef gsl_vector * c_uppers = gsl_vector_calloc(n)
+    cdef TDistParams * c_params = <TDistParams *> calloc(n, sizeof(TDistParams))
+    cdef TDist * distribution = get_distribution(int(params[0].dist_id))
     cdef gsl_vector * initial = gsl_vector_calloc(n)
     for i from 0 <= i < n:
-        gsl_vector_set(c_lowers, i, lowers[i])
-        gsl_vector_set(c_uppers, i, uppers[i])
-        gsl_vector_set(initial, i, lowers[i])
+        param.loc = params[i].loc
+        param.scale = params[i].scale
+        param.a = params[i].a
+        param.b = params[i].b
+        c_params[i] = param
+        gsl_vector_set(initial, i, params[i].a)
 
     cdef gsl_vector * c_bids = gsl_vector_calloc(m)
     for i from 0 <= i < m:
         gsl_vector_set(c_bids, i, bids[i])
 
     cdef gsl_matrix * c_costs = gsl_matrix_calloc(m, n)
-
-    # extract distribution
-    cdef TDist * distribution = get_distribution(int(distribution_id))
-
     cdef gsl_vector_view v
+    cdef TDistParams * c_params_slice
 
     # estimate k
     k = estimate_k(bids[0], initial)
 
     while True:
+        # slice params
+        # FIX:ME implement array views
+        c_params_slice = <TDistParams *> calloc(k, sizeof(TDistParams))
+        for i from 0 <= i < k:
+            c_params_slice[i] = c_params[i]
         # solve system at new initial conditions
-        status = solve_ode(gsl_vector_const_subvector(c_lowers, 0, k),
-                           gsl_vector_const_subvector(c_uppers, 0, k),
+        status = solve_ode(c_params_slice,
                            distribution,
                            gsl_vector_const_subvector(initial, 0, k),
                            gsl_vector_const_subvector(c_bids, index, m-index),
                            gsl_matrix_submatrix(c_costs, index, 0, m-index, k))
+        free(c_params_slice)
         
         if status != GSL_SUCCESS:
             # if unsuccessful, raise an error
             msg = "Error, return value=%d\n" % status
-            gsl_vector_free(c_lowers)
-            gsl_vector_free(c_uppers)
             gsl_vector_free(initial)
             gsl_vector_free(c_bids)
             gsl_matrix_free(c_costs)
+            free(c_params)
             free(distribution)
             raise Exception(msg)
 
@@ -321,15 +315,14 @@ def solve(lowers, uppers, bids, distribution_id=PyTDist.uniform):
 
         # find index of truncation
         v = gsl_matrix_column(c_costs, k)
-        index = min_index(&v.vector, lowers[k])
+        index = min_index(&v.vector, c_params[k].a)
 
         if index == m-1:
             msg = "Error, index of truncation exceeds permissible range\n"
-            gsl_vector_free(c_lowers)
-            gsl_vector_free(c_uppers)
             gsl_vector_free(initial)
             gsl_vector_free(c_bids)
             gsl_matrix_free(c_costs)
+            free(c_params)
             free(distribution)
             raise Exception(msg)
 
@@ -346,11 +339,10 @@ def solve(lowers, uppers, bids, distribution_id=PyTDist.uniform):
         for j from 0 <= j < n:
             costs[i][j] = gsl_matrix_get(c_costs, i, j)
 
-    gsl_vector_free(c_lowers)
-    gsl_vector_free(c_uppers)
     gsl_vector_free(initial)
     gsl_vector_free(c_bids)
     gsl_matrix_free(c_costs)
+    free(c_params)
     free(distribution)
 
     return costs

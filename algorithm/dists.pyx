@@ -7,19 +7,75 @@ cdef TDist * get_distribution(dist_t dist_id) nogil:
     if dist_id == UNIFORM:
         distribution.cdf = &uniform_cdf
         distribution.pdf = &uniform_pdf
+    elif dist_id == NORMAL:
+        distribution.cdf = &truncated_normal_cdf
+        distribution.pdf = &truncated_normal_pdf
     else:
         distribution.cdf = &uniform_cdf
         distribution.pdf = &uniform_pdf
 
     return distribution
 
+cdef double uniform_cdf(double x, TDistParams * params) nogil:
+    cdef:
+        double a = params.a
+        double b = params.b
+
+    if x < a:
+        return 0.0
+    elif x > b:
+        return 1.0
+    else:
+        return (x - a) / (b - a)
+
+cdef double uniform_pdf(double x, TDistParams * params) nogil:
+    cdef:
+        double a = params.a
+        double b = params.b
+
+    if x < a or x > b:
+        return 0.0
+    else:
+        return 1 / (b - a)
+
+cdef double truncated_normal_cdf(double x, TDistParams * params) nogil:
+    cdef:
+        double loc = params.loc
+        double scale = params.scale
+        double a = params.a
+        double b = params.b
+        double epsilon = (x - loc) / scale
+        double alpha = (a - loc) / scale
+        double beta = (b - loc) / scale
+
+    return ((standard_normal_cdf(epsilon) - standard_normal_cdf(alpha))
+           /(standard_normal_cdf(beta) - standard_normal_cdf(alpha)))
+
+cdef double truncated_normal_pdf(double x, TDistParams * params) nogil:
+    cdef:
+        double loc = params.loc
+        double scale = params.scale
+        double a = params.a
+        double b = params.b
+        double epsilon = (x - loc) / scale
+        double alpha = (a - loc) / scale
+        double beta = (b - loc) / scale
+
+    return (standard_normal_pdf(epsilon)
+           /(scale * (standard_normal_cdf(beta) - standard_normal_cdf(alpha))))
+
 class PyTDist(int, Enum):
     uniform = UNIFORM
+    normal = NORMAL
 
-class GenericDist:
-    def __init__(self, loc, scale):
-        self.loc = loc
-        self.scale = scale
+cdef class GenericDist:
+    cdef TDistParams params
+
+    def __init__(self, loc, scale, a, b):
+        self.params.loc = loc
+        self.params.scale = scale
+        self.params.a = a
+        self.params.b = b
 
     def cdf(self, x):
         return None
@@ -27,10 +83,17 @@ class GenericDist:
     def pdf(self, x):
         return None
 
-class Uniform(GenericDist):
+cdef class Uniform(GenericDist):
     def cdf(self, x):
-        return uniform_cdf(x, self.loc, self.scale)
+        return uniform_cdf(x, &self.params)
 
     def pdf(self, x):
-        return uniform_pdf(x, self.loc, self.scale)
+        return uniform_pdf(x, &self.params)
+
+cdef class TruncatedNormal(GenericDist):
+    def cdf(self, x):
+        return truncated_normal_cdf(x, &self.params)
+
+    def pdf(self, x):
+        return truncated_normal_pdf(x, &self.params)
 

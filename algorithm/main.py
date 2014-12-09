@@ -4,16 +4,47 @@ import numpy as np
 
 try:
     import algorithm.internal as internal
-    import algorithm.dists as dists
+    from algorithm.dists import Uniform, TruncatedNormal, PyTDist
 except ImportError:
     raise Exception("No module algorithm.internal. Perhaps you forgot to run 'make'?")
 
+class Params:
+    def __init__(self, loc, scale, a, b, dist_id):
+        self.loc = loc
+        self.scale = scale
+        self.a = a
+        self.b = b
+        self.dist_id = dist_id
+
+    def distribution(self):
+        dist = None
+        if self.dist_id == PyTDist.uniform:
+            dist = Uniform
+        elif self.dist_id == PyTDist.normal:
+            dist = TruncatedNormal
+        else:
+            dist = Uniform
+        return dist(self.loc, self.scale, self.a, self.b)
+
 class EFSM:
-    def __init__(self, lowers, uppers, granularity=10000):
-        self.lowers = np.array(lowers)
-        self.uppers = np.array(uppers)
+    def __init__(self, params, granularity=10000):
+        # Infer number of bidders
+        self.num_bidders = len(params)
+        # Save distribution parameters
+        self.params = params
+        # Populate lower and upper extremities
+        self.lowers = np.empty(self.num_bidders, dtype=np.float)
+        self.uppers = np.empty(self.num_bidders, dtype=np.float)
+        for i in np.arange(self.num_bidders):
+            self.lowers[i] = params[i].a
+            self.uppers[i] = params[i].b
         self.granularity = granularity
-        self._initialise()
+        # Populate cdfs of cost distributions
+        self.cdfs = []
+        for param in params:
+            self.cdfs.append(param.distribution())
+        # Calculate upper bound on bids
+        self.b_upper = self._upper_bound_bids()
 
     def solve(self):
         param = self._estimate_param()
@@ -59,16 +90,6 @@ class EFSM:
                 best_responses[i][z] = feasible_bids[np.argmax(utility)]
                 z += 1
         return sampled_bids, sampled_costs, best_responses
-    
-    def _initialise(self):
-        # Infer number of bidders
-        self.num_bidders = self.lowers.size
-        # Populate cdfs of cost distributions
-        self.cdfs = []
-        for l, u in zip(self.lowers, self.uppers):
-            self.cdfs.append(dists.Uniform(l, u))
-        # Calculate upper bound on bids
-        self.b_upper = self._upper_bound_bids()
     
     def _upper_bound_bids(self):
         """Returns an estimate on upper bound on bids.
@@ -131,7 +152,7 @@ class EFSM:
             bids = np.linspace(guess, self.b_upper-param, num=self.granularity, endpoint=False)
             # solve the system
             try:
-                costs = internal.solve(self.lowers, self.uppers, bids).T
+                costs = internal.solve(self.params, bids).T
             except Exception:
                 if param >= 1e-3:
                     raise Exception("Exceeded maximum iteration limit.")
