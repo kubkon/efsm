@@ -47,10 +47,6 @@ class EFSM:
         sampled_bids = np.empty((self.num_bidders, m), dtype=np.float)
         sampled_costs = np.empty((self.num_bidders, m), dtype=np.float)
         best_responses = np.empty((self.num_bidders, m), dtype=np.float)
-        # FIX:ME cost distributions
-        cdfs = []
-        for l, u in zip(self.lowers, self.uppers):
-            cdfs.append(stats.uniform(loc=l, scale=u-l))
         for i in np.arange(self.num_bidders):
             z = 0
             for j in sample_indices:
@@ -76,7 +72,7 @@ class EFSM:
                         for jj in np.arange(self.num_bidders):
                             if jj == i:
                                 continue
-                            probability *= (1 - cdfs[jj].cdf(costs[jj][corr_bid]))
+                            probability *= (1 - self.cdfs[jj].cdf(costs[jj][corr_bid]))
                         utility[k] *= probability
                 best_responses[i][z] = feasible_bids[np.argmax(utility)]
                 z += 1
@@ -87,6 +83,10 @@ class EFSM:
         self.num_bidders = self.lowers.size
         # Calculate upper bound on bids
         self.b_upper = self.upper_bound_bids()
+        # Populate cdfs of cost distributions
+        self.cdfs = []
+        for l, u in zip(self.lowers, self.uppers):
+            self.cdfs.append(stats.uniform(loc=l, scale=u-l))
 
     def _estimate_param(self):
         # approximate
