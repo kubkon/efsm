@@ -1,86 +1,159 @@
 import os
 import sys
 import numpy as np
-from algorithm.util import upper_bound_bids
-import algorithm.internal as internal
+import scipy.stats as stats
 
+try:
+    import algorithm.internal as internal
+except ImportError:
+    raise Exception("No module algorithm.internal. Perhaps you forgot to run 'make'?")
 
-def solve(lowers, uppers, granularity=10000, param=1e-6):
-    # infer number of bidders
-    n = lowers.size
+class EFSM:
+    def __init__(self, lowers, uppers, granularity=10000):
+        self.lowers = np.array(lowers)
+        self.uppers = np.array(uppers)
+        self.granularity = granularity
+        self._initialise()
 
-    # estimate the upper bound on bids
-    b_upper = upper_bound_bids(lowers, uppers)
+    def upper_bound_bids(self):
+        """Returns an estimate on upper bound on bids.
+        """
+        # tabulate the range of permissible values
+        num = 10000
+        vals = np.linspace(self.uppers[0], self.uppers[1], num)
+        tabulated = np.empty(num, dtype=np.float)
+        # solve the optimization problem in Eq. (1.8) in the thesis
+        for i in np.arange(num):
+            v = vals[i]
+            probs = 1
+            for j in np.arange(1, self.num_bidders):
+                l, u = self.lowers[j], self.uppers[j]
+                probs *= 1 - stats.uniform(loc=l, scale=(u-l)).cdf(v)
+            tabulated[i] = (v - self.uppers[0]) * probs
 
-    # set initial conditions for the FSM algorithm
-    low = lowers[1]
-    high = b_upper
-    epsilon = 1e-6
-    num = granularity
-    cond1 = np.empty(num, dtype=np.bool)
-    cond2 = np.empty(num, dtype=np.bool)
-    cond3 = np.empty(num-1, dtype=np.bool)
+        return vals[np.argmax(tabulated)]
 
-    # run the FSM algorithm until the estimate of the lower bound
-    # on bids is found
-    while high - low > epsilon:
-        guess = 0.5 * (low + high)
-        bids = np.linspace(guess, b_upper-param, num=num, endpoint=False)
+    def solve(self):
+        param = self._estimate_param()
+        if not param:
+            raise Exception("Algorithm failed to converge. Could not estimate 'param'.")
+        return self._run_ode_solver(param)
 
-        # solve the system
-        try:
-            costs = internal.solve(lowers, uppers, bids).T
+    def verify_sufficiency(self, costs, bids, step=100):
+        # Sample bidding space
+        sample_indices = np.arange(0, costs.shape[1], step)
+        m = sample_indices.size
+        # Initialize results arrays
+        sampled_bids = np.empty((self.num_bidders, m), dtype=np.float)
+        sampled_costs = np.empty((self.num_bidders, m), dtype=np.float)
+        best_responses = np.empty((self.num_bidders, m), dtype=np.float)
+        # FIX:ME cost distributions
+        cdfs = []
+        for l, u in zip(self.lowers, self.uppers):
+            cdfs.append(stats.uniform(loc=l, scale=u-l))
+        for i in np.arange(self.num_bidders):
+            z = 0
+            for j in sample_indices:
+                # Get current cost
+                cost = costs[i][j]
+                # Populate sampled bids and costs
+                sampled_bids[i][z] = bids[j]
+                sampled_costs[i][z] = cost
+                # Tabulate space of feasible bids for each sampled cost
+                feasible_bids = np.linspace(cost, self.b_upper, 100)
+                n_bids = feasible_bids.size
+                # Initialize utility array
+                utility = np.empty(n_bids, dtype=np.float)
+                for k in np.arange(n_bids):
+                    # Get currently considered bid
+                    bid = feasible_bids[k]
+                    # The upper bound on utility given current cost-bid pair
+                    utility[k] = bid - cost
+                    if bid >= bids[0]:
+                        # Compute probability of winning
+                        corr_bid = np.argmin(np.absolute(bids - np.ones(bids.size) * bid))
+                        probability = 1
+                        for jj in np.arange(self.num_bidders):
+                            if jj == i:
+                                continue
+                            probability *= (1 - cdfs[jj].cdf(costs[jj][corr_bid]))
+                        utility[k] *= probability
+                best_responses[i][z] = feasible_bids[np.argmax(utility)]
+                z += 1
+        return sampled_bids, sampled_costs, best_responses
+    
+    def _initialise(self):
+        # Infer number of bidders
+        self.num_bidders = self.lowers.size
+        # Calculate upper bound on bids
+        self.b_upper = self.upper_bound_bids()
 
-        except Exception:
-            if param >= 1e-3:
-                raise Exception("Exceeded maximum iteration limit.")
+    def _estimate_param(self):
+        # approximate
+        param = 1e-6
+        while True:
+            if param > 1e-4:
+                return None
+            try:
+                bids, costs = self._run_ode_solver(param)
+            except Exception:
+                param += 1e-6
+                continue
+            # verify sufficiency
+            step = bids.size // 35
+            sampled_bids, _, best_responses = self.verify_sufficiency(costs, bids, step=step)
+            # calculate average error
+            errors = []
+            m = sampled_bids.shape[1]
+            for i in range(self.num_bidders):
+                error = 0
+                for b,br in zip(sampled_bids[i], best_responses[i]):
+                    error += abs(b-br)
+                errors.append(error / m)
+            # Check if average is low for each bidder
+            if np.all([e < 1e-2 for e in errors]):
+                break
+            # Update param
             param += 1e-6
-            continue
+        return param
 
-        # modify array of lower extremities to account for the bidding
-        # extension
-        initial = costs[0,:]
-
-        for i in np.arange(n):
-            for j in np.arange(num):
-                x = costs[i][j]
-                cond1[j] = initial[i] <= x and x <= b_upper
-                cond2[j] = bids[j] > x
-
-        for i in np.arange(1, num):
-            cond3[i-1] = bids[i-1] < bids[i]
-
-        if np.all(cond1) and np.all(cond2) and np.all(cond3):
-            high = guess
-        else:
-            low = guess
-
-    try:
-        return bids, costs
-
-    except UnboundLocalError:
-        raise Exception("Algorithm failed to converge.")
+    def _run_ode_solver(self, param):
+        # set initial conditions for the FSM algorithm
+        low = self.lowers[1]
+        high = self.b_upper
+        epsilon = 1e-6
+        cond1 = np.empty(self.granularity, dtype=np.bool)
+        cond2 = np.empty(self.granularity, dtype=np.bool)
+        cond3 = np.empty(self.granularity-1, dtype=np.bool)
+        # run the FSM algorithm until the estimate of the lower bound
+        # on bids is found
+        while high - low > epsilon:
+            guess = 0.5 * (low + high)
+            bids = np.linspace(guess, self.b_upper-param, num=self.granularity, endpoint=False)
+            # solve the system
+            try:
+                costs = internal.solve(self.lowers, self.uppers, bids).T
+            except Exception:
+                if param >= 1e-3:
+                    raise Exception("Exceeded maximum iteration limit.")
+                param += 1e-6
+                continue
+            # modify array of lower extremities to account for the bidding
+            # extension
+            initial = costs[0,:]
+            for i in np.arange(self.num_bidders):
+                for j in np.arange(self.granularity):
+                    x = costs[i][j]
+                    cond1[j] = initial[i] <= x and x <= self.b_upper
+                    cond2[j] = bids[j] > x
+            for i in np.arange(1, self.granularity):
+                cond3[i-1] = bids[i-1] < bids[i]
+            if np.all(cond1) and np.all(cond2) and np.all(cond3):
+                high = guess
+            else:
+                low = guess
+        try:
+            return bids, costs
+        except UnboundLocalError:
+            raise Exception("Algorithm failed to converge.")
         
-
-if __name__ == "__main__":
-    param = float(sys.argv[1])
-
-    # set the scenario
-    lowers = np.array([0.0125,0.015,0.0375])
-    uppers = np.array([0.9625,0.965,0.9875])
-    n = lowers.size
-
-    # approximate
-    bids, costs = solve(lowers, uppers, param=param)
-
-    print("Estimated lower bound on bids: %r" % bids[0])
-
-    # save the results in a file
-    with open('efsm.out', 'wt') as f:
-        labels = ['lowers', 'uppers', 'bids'] + ['costs_{}'.format(i) for i in range(n)]
-        labels = ' '.join(labels)
-        values = [lowers.tolist(), uppers.tolist(), bids.tolist()] + [c.tolist() for c in costs]
-        values = ' '.join(map(lambda x: repr(x).replace(' ', ''), values))
-        f.write(labels)
-        f.write('\n')
-        f.write(values)
