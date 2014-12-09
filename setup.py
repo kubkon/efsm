@@ -7,6 +7,10 @@ import numpy as np
 ext_modules = [Extension("algorithm.internal", ["algorithm/internal.pyx"],
                          libraries=cython_gsl.get_libraries(),
                          library_dirs=[cython_gsl.get_library_dir()],
+                         cython_include_dirs=[cython_gsl.get_cython_include_dir()]),
+               Extension("algorithm.dists", ["algorithm/dists.pyx"],
+                         libraries=cython_gsl.get_libraries(),
+                         library_dirs=[cython_gsl.get_library_dir()],
                          cython_include_dirs=[cython_gsl.get_cython_include_dir()])]
 
 setup(

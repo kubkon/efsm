@@ -1,10 +1,10 @@
 import os
 import sys
 import numpy as np
-import scipy.stats as stats
 
 try:
     import algorithm.internal as internal
+    import algorithm.dists as dists
 except ImportError:
     raise Exception("No module algorithm.internal. Perhaps you forgot to run 'make'?")
 
@@ -14,24 +14,6 @@ class EFSM:
         self.uppers = np.array(uppers)
         self.granularity = granularity
         self._initialise()
-
-    def upper_bound_bids(self):
-        """Returns an estimate on upper bound on bids.
-        """
-        # tabulate the range of permissible values
-        num = 10000
-        vals = np.linspace(self.uppers[0], self.uppers[1], num)
-        tabulated = np.empty(num, dtype=np.float)
-        # solve the optimization problem in Eq. (1.8) in the thesis
-        for i in np.arange(num):
-            v = vals[i]
-            probs = 1
-            for j in np.arange(1, self.num_bidders):
-                l, u = self.lowers[j], self.uppers[j]
-                probs *= 1 - stats.uniform(loc=l, scale=(u-l)).cdf(v)
-            tabulated[i] = (v - self.uppers[0]) * probs
-
-        return vals[np.argmax(tabulated)]
 
     def solve(self):
         param = self._estimate_param()
@@ -81,12 +63,29 @@ class EFSM:
     def _initialise(self):
         # Infer number of bidders
         self.num_bidders = self.lowers.size
-        # Calculate upper bound on bids
-        self.b_upper = self.upper_bound_bids()
         # Populate cdfs of cost distributions
         self.cdfs = []
         for l, u in zip(self.lowers, self.uppers):
-            self.cdfs.append(stats.uniform(loc=l, scale=u-l))
+            self.cdfs.append(dists.Uniform(l, u))
+        # Calculate upper bound on bids
+        self.b_upper = self._upper_bound_bids()
+    
+    def _upper_bound_bids(self):
+        """Returns an estimate on upper bound on bids.
+        """
+        # tabulate the range of permissible values
+        num = 10000
+        vals = np.linspace(self.uppers[0], self.uppers[1], num)
+        tabulated = np.empty(num, dtype=np.float)
+        # solve the optimization problem in Eq. (1.8) in the thesis
+        for i in np.arange(num):
+            v = vals[i]
+            probs = 1
+            for j in np.arange(1, self.num_bidders):
+                probs *= 1 - self.cdfs[j].cdf(v)
+            tabulated[i] = (v - self.uppers[0]) * probs
+
+        return vals[np.argmax(tabulated)]
 
     def _estimate_param(self):
         # approximate
