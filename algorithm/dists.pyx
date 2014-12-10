@@ -48,8 +48,13 @@ cdef double truncated_normal_cdf(double x, TDistParams * params) nogil:
         double alpha = (a - loc) / scale
         double beta = (b - loc) / scale
 
-    return ((standard_normal_cdf(epsilon) - standard_normal_cdf(alpha))
-           /(standard_normal_cdf(beta) - standard_normal_cdf(alpha)))
+    if x < a:
+        return 0.0
+    elif x > b:
+        return 1.0
+    else:
+        return ((standard_normal_cdf(epsilon) - standard_normal_cdf(alpha))
+               /(standard_normal_cdf(beta) - standard_normal_cdf(alpha)))
 
 cdef double truncated_normal_pdf(double x, TDistParams * params) nogil:
     cdef:
@@ -61,8 +66,11 @@ cdef double truncated_normal_pdf(double x, TDistParams * params) nogil:
         double alpha = (a - loc) / scale
         double beta = (b - loc) / scale
 
-    return (standard_normal_pdf(epsilon)
-           /(scale * (standard_normal_cdf(beta) - standard_normal_cdf(alpha))))
+    if x < a or x > b:
+        return 0.0
+    else:
+        return (standard_normal_pdf(epsilon)
+               /(scale * (standard_normal_cdf(beta) - standard_normal_cdf(alpha))))
 
 class SupportedDistributions(IntEnum):
     uniform = UNIFORM
