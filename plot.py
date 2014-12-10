@@ -4,7 +4,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib import rc
 
-from algorithm.main import EFSM, Params, PyTDist
+from algorithm.main import EFSM, Params, SupportedDistributions
 
 
 rc('font',**{'family':'sans-serif','sans-serif':['Gill Sans']})
@@ -12,10 +12,15 @@ rc('text', usetex=True)
 matplotlib.rcParams.update({'font.size': 14, 'legend.fontsize': 14})
 
 # Set the scenario
+# params = [
+#     Params(0, 0, 0.0625, 0.8125, SupportedDistributions.uniform),
+#     Params(0, 0, 0.125,  0.875,  SupportedDistributions.uniform),
+#     Params(0, 0, 0.1875, 0.9375, SupportedDistributions.uniform)
+# ]
 params = [
-    Params(0, 0, 0.0625, 0.8125, PyTDist.uniform),
-    Params(0, 0, 0.125,  0.875,  PyTDist.uniform),
-    Params(0, 0, 0.1875, 0.9375, PyTDist.uniform)
+    Params(0.4375, 0.1875, 0.0625, 0.8125, SupportedDistributions.normal),
+    Params(0.5,    0.1875, 0.125,  0.875,  SupportedDistributions.normal),
+    Params(0.5625, 0.1875, 0.1875, 0.9375, SupportedDistributions.normal)
 ]
 
 # Approximate equilibrium bidding strategies

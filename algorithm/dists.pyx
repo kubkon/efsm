@@ -1,8 +1,8 @@
 from cython_gsl cimport *
 from libc.stdlib cimport calloc
-from enum import Enum
+from enum import IntEnum
 
-cdef TDist * get_distribution(dist_t dist_id) nogil:
+cdef TDist * get_distribution(supported_dists dist_id) nogil:
     cdef TDist * distribution = <TDist *> calloc(1, sizeof(TDist))
     if dist_id == UNIFORM:
         distribution.cdf = &uniform_cdf
@@ -64,9 +64,19 @@ cdef double truncated_normal_pdf(double x, TDistParams * params) nogil:
     return (standard_normal_pdf(epsilon)
            /(scale * (standard_normal_cdf(beta) - standard_normal_cdf(alpha))))
 
-class PyTDist(int, Enum):
+class SupportedDistributions(IntEnum):
     uniform = UNIFORM
     normal = NORMAL
+
+def py_get_distribution(dist_id):
+    dist = None
+    if dist_id == SupportedDistributions.uniform:
+        dist = Uniform
+    elif dist_id == SupportedDistributions.normal:
+        dist = TruncatedNormal
+    else:
+        dist = Uniform
+    return dist
 
 cdef class GenericDist:
     cdef TDistParams params

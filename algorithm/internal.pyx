@@ -4,7 +4,6 @@ from libc.math cimport fabs
 from algorithm.dists cimport *
 
 import numpy as np
-from algorithm.dists import PyTDist
 
 # C struct
 # specifies the system of ODE
@@ -15,19 +14,10 @@ ctypedef struct Tode:
     # struct holding pdf and cdf functions of a relevant distribution
     TDist * distribution
     # pointer to function describing system of ODEs
-    int f(int,
-          TDistParams *,
-          TDist *,
-          double,
-          double *,
-          double *) nogil
+    int f(int, TDistParams *, TDist *, double, double *, double *) nogil
 
-cdef int f(int n,
-           TDistParams * params,
-           TDist * distribution,
-           double t,
-           double * y,
-           double * f) nogil:
+cdef int f(int n, TDistParams * params, TDist * distribution, double t,
+           double * y, double * f) nogil:
     """Evolves system of ODEs at a particular independent variable t,
     and for a vector of particular dependent variables y_i(t). Mathematically,
     dy_i(t)/dt = f_i(t, y_1(t), ..., y_n(t)).
@@ -228,29 +218,13 @@ cdef int estimate_k(double b, const gsl_vector * c_lowers) nogil:
 
     return k
 
-def p_estimate_k(b, lowers):
-    """Python wrapper for estimate_k function.
-    """
-    cdef int i, n = lowers.size
-    cdef gsl_vector * c_lowers = gsl_vector_calloc(n)
-
-    for i from 0 <= i < n:
-        gsl_vector_set(c_lowers, i, lowers[i])
-
-    cdef int k = estimate_k(b, c_lowers)
-
-    gsl_vector_free(c_lowers)
-
-    return k
-
 def solve(params, bids):
     """Returns matrix of costs that establish the solution (and equilibrium)
     to the system of ODEs (1.26) in the thesis.
 
-    Arguments (all NumPy arrays):
-    lowers -- array of lower extremities
-    uppers -- array of upper extremities
-    bids -- array of bids (t's to solve for)
+    Arguments:
+    lowers -- list of parameters
+    bids -- Numpy array of bids (t's to solve for)
     """
     cdef int i, j, k
     cdef int m = bids.size
@@ -260,7 +234,7 @@ def solve(params, bids):
     cdef TDistParams param
 
     cdef TDistParams * c_params = <TDistParams *> calloc(n, sizeof(TDistParams))
-    cdef TDist * distribution = get_distribution(int(params[0].dist_id))
+    cdef TDist * distribution = get_distribution(params[0].dist_id.value)
     cdef gsl_vector * initial = gsl_vector_calloc(n)
     for i from 0 <= i < n:
         param.loc = params[i].loc

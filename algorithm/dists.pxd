@@ -10,11 +10,11 @@ ctypedef struct TDist:
     double cdf(double, TDistParams*) nogil
     double pdf(double, TDistParams*) nogil
 
-ctypedef enum dist_t:
+ctypedef enum supported_dists:
     UNIFORM = 0
     NORMAL  = 1
 
-cdef TDist * get_distribution(dist_t dist_id) nogil
+cdef TDist * get_distribution(supported_dists dist_id) nogil
 
 cdef double uniform_cdf(double x, TDistParams * params) nogil
 cdef double uniform_pdf(double x, TDistParams * params) nogil

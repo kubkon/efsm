@@ -4,7 +4,7 @@ import numpy as np
 
 try:
     import algorithm.internal as internal
-    from algorithm.dists import Uniform, TruncatedNormal, PyTDist
+    from algorithm.dists import SupportedDistributions, py_get_distribution
 except ImportError:
     raise Exception("No module algorithm.internal. Perhaps you forgot to run 'make'?")
 
@@ -16,41 +16,26 @@ class Params:
         self.b = b
         self.dist_id = dist_id
 
-    def distribution(self):
-        dist = None
-        if self.dist_id == PyTDist.uniform:
-            dist = Uniform
-        elif self.dist_id == PyTDist.normal:
-            dist = TruncatedNormal
-        else:
-            dist = Uniform
-        return dist(self.loc, self.scale, self.a, self.b)
-
 class EFSM:
     def __init__(self, params, granularity=10000):
         # Infer number of bidders
         self.num_bidders = len(params)
         # Save distribution parameters
         self.params = params
-        # Populate lower and upper extremities
-        self.lowers = np.empty(self.num_bidders, dtype=np.float)
-        self.uppers = np.empty(self.num_bidders, dtype=np.float)
-        for i in np.arange(self.num_bidders):
-            self.lowers[i] = params[i].a
-            self.uppers[i] = params[i].b
+        # Set solution granularity
         self.granularity = granularity
         # Populate cdfs of cost distributions
         self.cdfs = []
         for param in params:
-            self.cdfs.append(param.distribution())
+            self.cdfs.append(py_get_distribution(param.dist_id)(param.loc, param.scale, param.a, param.b))
         # Calculate upper bound on bids
         self.b_upper = self._upper_bound_bids()
 
     def solve(self):
-        param = self._estimate_param()
-        if not param:
-            raise Exception("Algorithm failed to converge. Could not estimate 'param'.")
-        return self._run_ode_solver(param)
+        conv_param = self._estimate_convergence_param()
+        if not conv_param:
+            raise Exception("Algorithm failed to converge. Could not estimate 'conv_param'.")
+        return self._run_ode_solver(conv_param)
 
     def verify_sufficiency(self, costs, bids, step=100):
         # Sample bidding space
@@ -96,7 +81,7 @@ class EFSM:
         """
         # tabulate the range of permissible values
         num = 10000
-        vals = np.linspace(self.uppers[0], self.uppers[1], num)
+        vals = np.linspace(self.params[0].b, self.params[1].b, num)
         tabulated = np.empty(num, dtype=np.float)
         # solve the optimization problem in Eq. (1.8) in the thesis
         for i in np.arange(num):
@@ -104,11 +89,11 @@ class EFSM:
             probs = 1
             for j in np.arange(1, self.num_bidders):
                 probs *= 1 - self.cdfs[j].cdf(v)
-            tabulated[i] = (v - self.uppers[0]) * probs
+            tabulated[i] = (v - self.params[0].b) * probs
 
         return vals[np.argmax(tabulated)]
 
-    def _estimate_param(self):
+    def _estimate_convergence_param(self):
         # approximate
         param = 1e-6
         while True:
@@ -137,9 +122,9 @@ class EFSM:
             param += 1e-6
         return param
 
-    def _run_ode_solver(self, param):
+    def _run_ode_solver(self, conv_param):
         # set initial conditions for the FSM algorithm
-        low = self.lowers[1]
+        low = self.params[1].a
         high = self.b_upper
         epsilon = 1e-6
         cond1 = np.empty(self.granularity, dtype=np.bool)
@@ -149,14 +134,14 @@ class EFSM:
         # on bids is found
         while high - low > epsilon:
             guess = 0.5 * (low + high)
-            bids = np.linspace(guess, self.b_upper-param, num=self.granularity, endpoint=False)
+            bids = np.linspace(guess, self.b_upper-conv_param, num=self.granularity, endpoint=False)
             # solve the system
             try:
                 costs = internal.solve(self.params, bids).T
             except Exception:
-                if param >= 1e-3:
+                if conv_param >= 1e-3:
                     raise Exception("Exceeded maximum iteration limit.")
-                param += 1e-6
+                conv_param += 1e-6
                 continue
             # modify array of lower extremities to account for the bidding
             # extension
