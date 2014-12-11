@@ -10,8 +10,9 @@ import numpy as np
 ctypedef struct Tode:
     # number of bidders
     int n
+    # array of structs holding distribution parameters specific for each bidder
     TDistParams * params
-    # struct holding pdf and cdf functions of a relevant distribution
+    # array of structs holding pdf and cdf functions of a relevant distribution
     TDist * distribution
     # pointer to function describing system of ODEs
     int f(int, TDistParams *, TDist *, double, double *, double *) nogil
@@ -23,8 +24,8 @@ cdef int f(int n, TDistParams * params, TDist * distribution, double t,
     dy_i(t)/dt = f_i(t, y_1(t), ..., y_n(t)).
 
     Arguments:
-    n -- number of bidders
-    uppers -- gsl vector of upper extremities
+    n      -- number of bidders
+    params -- 
     t -- independent variable
     y -- array of dependent variables
     f -- array of solved vector elements f_i(..)
@@ -50,8 +51,10 @@ cdef int f(int n, TDistParams * params, TDist * distribution, double t,
         pdf = distribution.pdf(y[i], &params[i])
         
         if pdf == 0:
-            free(rs)
-            return GSL_EZERODIV
+            # If pdf(c(b)) is zero, then c(b) is outside of the feasible region.
+            # Therefore, to avoid division by zero and let the algorithm continue
+            # we let pdf nonzero but very small.
+            pdf = 1e-3
 
         f[i] = ((1 - cdf) / pdf) * (rs_sum / (n-1) - rs[i])
 
@@ -65,8 +68,7 @@ cdef int ode(double t, double y[], double f[], void *params) nogil:
     # unpack Tode struct from params
     cdef Tode * P = <Tode *> params
     # solve ODE at instant t
-    P.f(P.n, P.params, P.distribution, t, y, f)
-    return GSL_SUCCESS
+    return P.f(P.n, P.params, P.distribution, t, y, f)
 
 cdef int solve_ode(TDistParams * params,
                    TDist * distribution,
