@@ -11,8 +11,8 @@ ctypedef struct TDist:
     double pdf(double, TDistParams*) nogil
 
 ctypedef enum supported_dists:
-    UNIFORM = 0
-    NORMAL  = 1
+    UNIFORM      = 0
+    TRUNC_NORMAL = 1
 
 cdef TDist * get_distribution(supported_dists dist_id) nogil
 

@@ -28,7 +28,8 @@ class EFSM:
         # Populate cdfs of cost distributions
         self.cdfs = []
         for param in params:
-            self.cdfs.append(py_get_distribution(param.dist_id)(param.loc, param.scale, param.a, param.b))
+            dist = py_get_distribution(param.dist_id)(param.loc, param.scale, param.a, param.b)
+            self.cdfs.append(dist)
         # Calculate upper bound on bids
         self.b_upper = self._upper_bound_bids()
 

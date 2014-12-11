@@ -7,7 +7,7 @@ cdef TDist * get_distribution(supported_dists dist_id) nogil:
     if dist_id == UNIFORM:
         distribution.cdf = &uniform_cdf
         distribution.pdf = &uniform_pdf
-    elif dist_id == NORMAL:
+    elif dist_id == TRUNC_NORMAL:
         distribution.cdf = &truncated_normal_cdf
         distribution.pdf = &truncated_normal_pdf
     else:
@@ -74,13 +74,13 @@ cdef double truncated_normal_pdf(double x, TDistParams * params) nogil:
 
 class SupportedDistributions(IntEnum):
     uniform = UNIFORM
-    normal = NORMAL
+    trunc_normal = TRUNC_NORMAL
 
 def py_get_distribution(dist_id):
     dist = None
     if dist_id == SupportedDistributions.uniform:
         dist = Uniform
-    elif dist_id == SupportedDistributions.normal:
+    elif dist_id == SupportedDistributions.trunc_normal:
         dist = TruncatedNormal
     else:
         dist = Uniform
