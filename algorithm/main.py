@@ -1,12 +1,13 @@
 import os
 import sys
 import numpy as np
+from algorithm.errors import *
 
 try:
     import algorithm.internal as internal
     from algorithm.dists import SupportedDistributions, py_get_distribution
 except ImportError:
-    raise Exception("No module algorithm.internal. Perhaps you forgot to run 'make'?")
+    raise EFSMCompilationError()
 
 class Params:
     def __init__(self, loc, scale, a, b, dist_id):
@@ -32,9 +33,11 @@ class EFSM:
         self.b_upper = self._upper_bound_bids()
 
     def solve(self):
-        conv_param = self._estimate_convergence_param()
-        if not conv_param:
-            raise Exception("Algorithm failed to converge. Could not estimate 'conv_param'.")
+        try:
+            conv_param = self._estimate_convergence_param()
+        except EFSMConvergenceParam as e:
+            print(e)
+            raise EFSMFailure()
         return self._run_ode_solver(conv_param)
 
     def verify_sufficiency(self, costs, bids, step=100):
@@ -98,10 +101,10 @@ class EFSM:
         param = 1e-6
         while True:
             if param > 1e-4:
-                return None
+                raise EFSMConvergenceParam()
             try:
                 bids, costs = self._run_ode_solver(param)
-            except Exception:
+            except EFSMMaximumIterationExceeded:
                 param += 1e-6
                 continue
             # verify sufficiency
@@ -138,9 +141,9 @@ class EFSM:
             # solve the system
             try:
                 costs = internal.solve(self.params, bids).T
-            except Exception:
+            except (GSLFailure, GSLZeroDivision, EFSMTruncationIndexExceeded):
                 if conv_param >= 1e-3:
-                    raise Exception("Exceeded maximum iteration limit.")
+                    raise EFSMMaximumIterationExceeded()
                 conv_param += 1e-6
                 continue
             # modify array of lower extremities to account for the bidding
@@ -160,5 +163,5 @@ class EFSM:
         try:
             return bids, costs
         except UnboundLocalError:
-            raise Exception("Algorithm failed to converge.")
+            raise EFSMFailure()
         

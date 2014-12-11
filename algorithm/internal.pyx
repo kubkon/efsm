@@ -4,6 +4,7 @@ from libc.math cimport fabs
 from algorithm.dists cimport *
 
 import numpy as np
+from algorithm.errors import *
 
 # C struct
 # specifies the system of ODE
@@ -12,7 +13,7 @@ ctypedef struct Tode:
     int n
     # array of structs holding distribution parameters specific for each bidder
     TDistParams * params
-    # array of structs holding pdf and cdf functions of a relevant distribution
+    # struct holding pdf and cdf functions of a relevant distribution
     TDist * distribution
     # pointer to function describing system of ODEs
     int f(int, TDistParams *, TDist *, double, double *, double *) nogil
@@ -24,11 +25,12 @@ cdef int f(int n, TDistParams * params, TDist * distribution, double t,
     dy_i(t)/dt = f_i(t, y_1(t), ..., y_n(t)).
 
     Arguments:
-    n      -- number of bidders
-    params -- 
-    t -- independent variable
-    y -- array of dependent variables
-    f -- array of solved vector elements f_i(..)
+    n            -- number of bidders
+    params       -- array of distribution parameters for each bidder
+    distribution -- probability distribution to use
+    t            -- independent variable
+    y            -- array of dependent variables
+    f            -- array of solved vector elements f_i(..)
     """
     cdef double * rs = <double *> calloc(n, sizeof(double))
     cdef int i
@@ -45,7 +47,6 @@ cdef int f(int n, TDistParams * params, TDist * distribution, double t,
         rs[i] = 1 / r
         rs_sum += 1 / r
 
-    # this loop corresponds to the system of equations (1.26) in the thesis
     for i from 0 <= i < n:
         cdf = distribution.cdf(y[i], &params[i])
         pdf = distribution.pdf(y[i], &params[i])
@@ -272,14 +273,12 @@ def solve(params, bids):
         free(c_params_slice)
         
         if status != GSL_SUCCESS:
-            # if unsuccessful, raise an error
-            msg = "Error, return value=%d\n" % status
             gsl_vector_free(initial)
             gsl_vector_free(c_bids)
             gsl_matrix_free(c_costs)
             free(c_params)
             free(distribution)
-            raise Exception(msg)
+            raise gsl_error_mapping[status]()
 
         if k == n:
             break
@@ -294,13 +293,12 @@ def solve(params, bids):
         index = min_index(&v.vector, c_params[k].a)
 
         if index == m-1:
-            msg = "Error, index of truncation exceeds permissible range\n"
             gsl_vector_free(initial)
             gsl_vector_free(c_bids)
             gsl_matrix_free(c_costs)
             free(c_params)
             free(distribution)
-            raise Exception(msg)
+            raise EFSMTruncationIndexExceeded()
 
         # set new initial conditions
         for j from 0 <= j < n:
