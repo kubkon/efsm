@@ -11,14 +11,12 @@ from algorithm.errors import *
 ctypedef struct Tode:
     # number of bidders
     int n
-    # array of structs holding distribution parameters specific for each bidder
-    TDistParams * params
-    # struct holding pdf and cdf functions of a relevant distribution
-    TDist * distribution
+    # array of structs holding bidding parameters specific for each bidder
+    BiddingParams * params
     # pointer to function describing system of ODEs
-    int f(int, TDistParams *, TDist *, double, double *, double *) nogil
+    int f(int, BiddingParams *, double, double *, double *) nogil
 
-cdef int f(int n, TDistParams * params, TDist * distribution, double t,
+cdef int f(int n, BiddingParams * params, double t,
            double * y, double * f) nogil:
     """Evolves system of ODEs at a particular independent variable t,
     and for a vector of particular dependent variables y_i(t). Mathematically,
@@ -26,8 +24,7 @@ cdef int f(int n, TDistParams * params, TDist * distribution, double t,
 
     Arguments:
     n            -- number of bidders
-    params       -- array of distribution parameters for each bidder
-    distribution -- probability distribution to use
+    params       -- array of bidding parameters for each bidder
     t            -- independent variable
     y            -- array of dependent variables
     f            -- array of solved vector elements f_i(..)
@@ -48,8 +45,8 @@ cdef int f(int n, TDistParams * params, TDist * distribution, double t,
         rs_sum += 1 / r
 
     for i from 0 <= i < n:
-        cdf = distribution.cdf(y[i], &params[i])
-        pdf = distribution.pdf(y[i], &params[i])
+        cdf = params[i].dist.cdf(y[i], &params[i].dist_params)
+        pdf = params[i].dist.pdf(y[i], &params[i].dist_params)
         
         if pdf == 0:
             # If pdf(c(b)) is zero, then c(b) is outside of the feasible region.
@@ -69,10 +66,9 @@ cdef int ode(double t, double y[], double f[], void *params) nogil:
     # unpack Tode struct from params
     cdef Tode * P = <Tode *> params
     # solve ODE at instant t
-    return P.f(P.n, P.params, P.distribution, t, y, f)
+    return P.f(P.n, P.params, t, y, f)
 
-cdef int solve_ode(TDistParams * params,
-                   TDist * distribution,
+cdef int solve_ode(BiddingParams * params,
                    gsl_vector_const_view v_initial,
                    gsl_vector_const_view v_bids,
                    gsl_matrix_view v_costs) nogil:
@@ -89,7 +85,6 @@ cdef int solve_ode(TDistParams * params,
     P.n = n
     P.params = params
     P.f = f
-    P.distribution = distribution
 
     # initialize GSL ODE system
     cdef gsl_odeiv2_system sys
@@ -226,25 +221,28 @@ def solve(params, bids):
     to the system of ODEs (1.26) in the thesis.
 
     Arguments:
-    lowers -- list of parameters
-    bids -- Numpy array of bids (t's to solve for)
+    params -- list of bidding parameters
+    bids   -- Numpy array of bids (t's to solve for)
     """
     cdef int i, j, k
     cdef int m = bids.size
     cdef int n = len(params)
     cdef int index = 0
     cdef double prev, curr
-    cdef TDistParams param
 
-    cdef TDistParams * c_params = <TDistParams *> calloc(n, sizeof(TDistParams))
-    cdef TDist * distribution = get_distribution(params[0].dist_id.value)
+    cdef DistParams dist_ps
+    cdef BiddingParams bidding_ps
+
+    cdef BiddingParams * bidding_params = <BiddingParams *> calloc(n, sizeof(BiddingParams))
     cdef gsl_vector * initial = gsl_vector_calloc(n)
     for i from 0 <= i < n:
-        param.loc = params[i].loc
-        param.scale = params[i].scale
-        param.a = params[i].a
-        param.b = params[i].b
-        c_params[i] = param
+        dist_ps.loc = params[i].loc
+        dist_ps.scale = params[i].scale
+        dist_ps.a = params[i].a
+        dist_ps.b = params[i].b
+        bidding_ps.dist_params = dist_ps
+        bidding_ps.dist = get_distribution(params[i].dist.c_id)
+        bidding_params[i] = bidding_ps
         gsl_vector_set(initial, i, params[i].a)
 
     cdef gsl_vector * c_bids = gsl_vector_calloc(m)
@@ -253,7 +251,7 @@ def solve(params, bids):
 
     cdef gsl_matrix * c_costs = gsl_matrix_calloc(m, n)
     cdef gsl_vector_view v
-    cdef TDistParams * c_params_slice
+    cdef BiddingParams * bidding_params_slice
 
     # estimate k
     k = estimate_k(bids[0], initial)
@@ -261,23 +259,21 @@ def solve(params, bids):
     while True:
         # slice params
         # FIX:ME implement array views
-        c_params_slice = <TDistParams *> calloc(k, sizeof(TDistParams))
+        bidding_params_slice = <BiddingParams *> calloc(k, sizeof(BiddingParams))
         for i from 0 <= i < k:
-            c_params_slice[i] = c_params[i]
+            bidding_params_slice[i] = bidding_params[i]
         # solve system at new initial conditions
-        status = solve_ode(c_params_slice,
-                           distribution,
+        status = solve_ode(bidding_params_slice,
                            gsl_vector_const_subvector(initial, 0, k),
                            gsl_vector_const_subvector(c_bids, index, m-index),
                            gsl_matrix_submatrix(c_costs, index, 0, m-index, k))
-        free(c_params_slice)
+        free(bidding_params_slice)
         
         if status != GSL_SUCCESS:
             gsl_vector_free(initial)
             gsl_vector_free(c_bids)
             gsl_matrix_free(c_costs)
-            free(c_params)
-            free(distribution)
+            free(bidding_params)
             raise gsl_error_mapping[status]()
 
         if k == n:
@@ -290,14 +286,13 @@ def solve(params, bids):
 
         # find index of truncation
         v = gsl_matrix_column(c_costs, k)
-        index = min_index(&v.vector, c_params[k].a)
+        index = min_index(&v.vector, bidding_params[k].dist_params.a)
 
         if index == m-1:
             gsl_vector_free(initial)
             gsl_vector_free(c_bids)
             gsl_matrix_free(c_costs)
-            free(c_params)
-            free(distribution)
+            free(bidding_params)
             raise EFSMTruncationIndexExceeded()
 
         # set new initial conditions
@@ -316,7 +311,6 @@ def solve(params, bids):
     gsl_vector_free(initial)
     gsl_vector_free(c_bids)
     gsl_matrix_free(c_costs)
-    free(c_params)
-    free(distribution)
+    free(bidding_params)
 
     return costs

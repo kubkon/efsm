@@ -1,22 +1,7 @@
 from cython_gsl cimport *
 from libc.stdlib cimport calloc
-from enum import IntEnum
 
-cdef TDist * get_distribution(supported_dists dist_id) nogil:
-    cdef TDist * distribution = <TDist *> calloc(1, sizeof(TDist))
-    if dist_id == UNIFORM:
-        distribution.cdf = &uniform_cdf
-        distribution.pdf = &uniform_pdf
-    elif dist_id == TRUNC_NORMAL:
-        distribution.cdf = &truncated_normal_cdf
-        distribution.pdf = &truncated_normal_pdf
-    else:
-        distribution.cdf = &uniform_cdf
-        distribution.pdf = &uniform_pdf
-
-    return distribution
-
-cdef double uniform_cdf(double x, TDistParams * params) nogil:
+cdef double uniform_cdf(double x, DistParams * params) nogil:
     cdef:
         double a = params.a
         double b = params.b
@@ -28,7 +13,7 @@ cdef double uniform_cdf(double x, TDistParams * params) nogil:
     else:
         return (x - a) / (b - a)
 
-cdef double uniform_pdf(double x, TDistParams * params) nogil:
+cdef double uniform_pdf(double x, DistParams * params) nogil:
     cdef:
         double a = params.a
         double b = params.b
@@ -38,7 +23,7 @@ cdef double uniform_pdf(double x, TDistParams * params) nogil:
     else:
         return 1 / (b - a)
 
-cdef double truncated_normal_cdf(double x, TDistParams * params) nogil:
+cdef double truncated_normal_cdf(double x, DistParams * params) nogil:
     cdef:
         double loc = params.loc
         double scale = params.scale
@@ -56,7 +41,7 @@ cdef double truncated_normal_cdf(double x, TDistParams * params) nogil:
         return ((standard_normal_cdf(epsilon) - standard_normal_cdf(alpha))
                /(standard_normal_cdf(beta) - standard_normal_cdf(alpha)))
 
-cdef double truncated_normal_pdf(double x, TDistParams * params) nogil:
+cdef double truncated_normal_pdf(double x, DistParams * params) nogil:
     cdef:
         double loc = params.loc
         double scale = params.scale
@@ -72,22 +57,21 @@ cdef double truncated_normal_pdf(double x, TDistParams * params) nogil:
         return (standard_normal_pdf(epsilon)
                /(scale * (standard_normal_cdf(beta) - standard_normal_cdf(alpha))))
 
-class SupportedDistributions(IntEnum):
-    uniform = UNIFORM
-    trunc_normal = TRUNC_NORMAL
+cdef Dist get_distribution(CSupportedDists id) nogil:
+    cdef Dist dist
+    dist.cdf = &uniform_cdf
+    dist.pdf = &uniform_pdf
 
-def py_get_distribution(dist_id):
-    dist = None
-    if dist_id == SupportedDistributions.uniform:
-        dist = Uniform
-    elif dist_id == SupportedDistributions.trunc_normal:
-        dist = TruncatedNormal
+    if id == TRUNC_NORMAL:
+        dist.cdf = &truncated_normal_cdf
+        dist.pdf = &truncated_normal_pdf
     else:
-        dist = Uniform
+        pass
+
     return dist
 
 cdef class GenericDist:
-    cdef TDistParams params
+    cdef DistParams params
 
     def __init__(self, loc, scale, a, b):
         self.params.loc = loc
@@ -102,6 +86,8 @@ cdef class GenericDist:
         return None
 
 cdef class Uniform(GenericDist):
+    c_id = UNIFORM
+
     def cdf(self, x):
         return uniform_cdf(x, &self.params)
 
@@ -109,6 +95,8 @@ cdef class Uniform(GenericDist):
         return uniform_pdf(x, &self.params)
 
 cdef class TruncatedNormal(GenericDist):
+    c_id = TRUNC_NORMAL
+
     def cdf(self, x):
         return truncated_normal_cdf(x, &self.params)
 

@@ -5,17 +5,17 @@ from algorithm.errors import *
 
 try:
     import algorithm.internal as internal
-    from algorithm.dists import SupportedDistributions, py_get_distribution
+    from algorithm.dists import *
 except ImportError:
     raise EFSMCompilationError()
 
 class Params:
-    def __init__(self, loc, scale, a, b, dist_id):
+    def __init__(self, loc, scale, a, b, dist):
         self.loc = loc
         self.scale = scale
         self.a = a
         self.b = b
-        self.dist_id = dist_id
+        self.dist = dist(loc, scale, a, b)
 
 class EFSM:
     def __init__(self, params, granularity=10000):
@@ -25,11 +25,6 @@ class EFSM:
         self.params = params
         # Set solution granularity
         self.granularity = granularity
-        # Populate cdfs of cost distributions
-        self.cdfs = []
-        for param in params:
-            dist = py_get_distribution(param.dist_id)(param.loc, param.scale, param.a, param.b)
-            self.cdfs.append(dist)
         # Calculate upper bound on bids
         self.b_upper = self._upper_bound_bids()
 
@@ -74,7 +69,7 @@ class EFSM:
                         for jj in np.arange(self.num_bidders):
                             if jj == i:
                                 continue
-                            probability *= (1 - self.cdfs[jj].cdf(costs[jj][corr_bid]))
+                            probability *= (1 - self.params[jj].dist.cdf(costs[jj][corr_bid]))
                         utility[k] *= probability
                 best_responses[i][z] = feasible_bids[np.argmax(utility)]
                 z += 1
@@ -92,7 +87,7 @@ class EFSM:
             v = vals[i]
             probs = 1
             for j in np.arange(1, self.num_bidders):
-                probs *= 1 - self.cdfs[j].cdf(v)
+                probs *= 1 - self.params[j].dist.cdf(v)
             tabulated[i] = (v - self.params[0].b) * probs
 
         return vals[np.argmax(tabulated)]
