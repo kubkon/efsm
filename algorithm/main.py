@@ -17,6 +17,17 @@ class Params:
         self.b = b
         self.dist = dist(loc, scale, a, b)
 
+    def __str__(self):
+        s = """Params {
+        loc: %f,
+        scale: %f,
+        a: %f,
+        b: %f,
+        dist: %s
+        }
+        """ % (self.loc, self.scale, self.a, self.b, self.dist.__class__.__name__)
+        return s
+
 class EFSM:
     def __init__(self, params, granularity=10000):
         # Infer number of bidders
@@ -138,6 +149,7 @@ class EFSM:
             try:
                 costs = internal.solve(self.params, bids).T
             except (GSLFailure, GSLZeroDivision, EFSMTruncationIndexExceeded):
+                low += 1e-12
                 if conv_param >= 1e-3:
                     raise EFSMMaximumIterationExceeded()
                 conv_param += 1e-6
