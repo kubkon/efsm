@@ -150,7 +150,7 @@ class EFSM:
                 costs = internal.solve(self.params, bids).T
             except (GSLFailure, GSLZeroDivision, EFSMTruncationIndexExceeded):
                 low += 1e-12
-                if conv_param >= 1e-3:
+                if conv_param >= 1e-3 or low >= high:
                     raise EFSMMaximumIterationExceeded()
                 conv_param += 1e-6
                 continue

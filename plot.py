@@ -37,10 +37,15 @@ matplotlib.rcParams.update({'font.size': 14, 'legend.fontsize': 14})
 #     Params(0.5, 0.1875, 0.125,  0.875,  TruncatedNormal),
 #     Params(0,   0,      0.1875, 0.9375, Uniform)
 # ]
+# params = [
+#     Params(0,   0,      0.1125, 0.6625, Uniform),
+#     Params(0.5, 0.1375, 0.225,  0.775,  TruncatedNormal),
+#     Params(0,   0,      0.3375, 0.8875, Uniform)
+# ]
 params = [
-    Params(0,   0,      0.1125, 0.6625, Uniform),
-    Params(0.5, 0.1375, 0.225,  0.775,  TruncatedNormal),
-    Params(0,   0,      0.3375, 0.8875, Uniform)
+    Params(6.9375, 0.6875, 5.5625, 8.3125, TruncatedNormal),
+    Params(7.5,    0.6875, 6.125,  8.875,  TruncatedNormal),
+    Params(8.0625, 0.6875, 6.6875, 9.4375, TruncatedNormal)
 ]
 
 # Approximate equilibrium bidding strategies
