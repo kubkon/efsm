@@ -30,5 +30,5 @@ $ python plot.py
 ```
 
 ## License
-See [here](License).
+See [here](LICENSE).
 
